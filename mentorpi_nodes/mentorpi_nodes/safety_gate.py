@@ -9,7 +9,6 @@ def clamp(value, low, high):
     # TODO 1: return value, but never below low and never above high.
     # Hint: combine max() and min(), like Monday's lecture.
     return max(low, min(value, high))
-    return value
 
 
 class SafetyGate(Node):
@@ -22,6 +21,10 @@ class SafetyGate(Node):
 
         # The node's on/off state, stored on self so callbacks can read it
         self.enabled = True
+        self.declare_parameter('timeout', 0.5)
+        self.last_cmd_time = self.get_clock().now()
+        self.timed_out = True
+        self.create_timer(0.1, self.check_timeout)
 
         # Listen for raw commands, and publish the limited ones
         self.sub = self.create_subscription(
@@ -35,6 +38,8 @@ class SafetyGate(Node):
         self.get_logger().info('safety_gate is ready')
 
     def on_cmd_vel_raw(self, msg):
+        self.last_cmd_time = self.get_clock().now()
+        self.timed_out = False
         # Motion off: send zeros and stop here
         if not self.enabled:
             self.publish_zero()
@@ -50,6 +55,14 @@ class SafetyGate(Node):
         out.twist.angular.z = msg.twist.angular.z
         self.pub.publish(out)
 
+    def check_timeout(self):
+        timeout = self.get_parameter('timeout').value
+        age = (self.get_clock().now() - self.last_cmd_time).nanoseconds / 1e9
+        if age > timeout and not self.timed_out:
+            self.timed_out = True
+            self.publish_zero()
+            self.get_logger().warn('No command received, stopping')
+            
     def publish_zero(self):
         # A new TwistStamped is all zeros, so publishing one is a stop command
         out = TwistStamped()
